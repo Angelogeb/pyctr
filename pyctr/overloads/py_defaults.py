@@ -134,6 +134,12 @@ class PyctUnboundLocalError(Exception):
   pass
 
 
+def return_(var):
+  if isinstance(var, Variable):
+    return var.val
+  return var
+
+
 def read(var):
   assert isinstance(var, Variable)
   if isinstance(var.val, Undefined):

@@ -216,6 +216,19 @@ class VariableTransformer(transformer.Base):
           'overload.read(id)', overload=self.overload.symbol_name, id=node.id)
     return node
 
+  def visit_ExceptHandler(self, node):
+    if node.type.attr == "PyctrReturnException":
+        return node
+    node.body = self.visit_block(node.body)
+    return node
+
+  def visit_Return(self, node):
+    ret = self.generic_visit(node.value)
+    if not hasattr(self.overload.module, 'return_'):
+        node = templates.replace('raise overload.PyctrReturnException(ret)', overload=self.overload.symbol_name, ret=ret)
+    else:
+        node = templates.replace('raise overload.PyctrReturnException(overload.return_(ret))', overload=self.overload.symbol_name, ret=ret)
+    return node
 
 def transform(node, ctx, overload):
   sc = scoping.ScopeTransformer(ctx)
