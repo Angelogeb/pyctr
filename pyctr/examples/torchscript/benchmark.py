@@ -31,11 +31,11 @@ def full_bench(fun, args, expected):
 if __name__ == "__main__":
     batch_size = 512
     seq_length = 1000
-    state_dim = 20
-    input_dim = 20
+    state_dim = 64
+    input_dim = 64
     n_times = 10
     state_cat_input_dim = state_dim + input_dim
-    training = False
+    training = True
     dev = "cpu"
 
     seq = torch.randn(seq_length, batch_size, input_dim).to(dev)
