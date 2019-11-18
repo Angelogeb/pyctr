@@ -6,6 +6,7 @@ from textwrap import dedent
 import torch
 from torch._C._jit_tree_views import (
     Assign,
+    BinOp,
     Decl,
     Def,
     For,
@@ -20,21 +21,29 @@ from torch.jit.frontend import SourceContext
 from pyctr.api import conversion
 from pyctr.examples.torchscript import call_helper
 from pyctr.examples.torchscript.dmmy import ctx, dmmy_rng
-from pyctr.examples.torchscript.expression import Rep, torch_expr
+from pyctr.examples.torchscript.expression import TorchExpr, torch_expr
 from pyctr.examples.torchscript.torch_ast import emit_node, flush_ast, fresh_ast
 from pyctr.overloads import py_defaults
 from pyctr.transformers.virtualization import control_flow, functions, variables
 
 tch_ir_ = sys.modules[__name__]
 
+
+class Rep(TorchExpr):
+    def __init__(self, val):
+        super().__init__(val)
+
+
 init = py_defaults.init
 
 
 def assign(lhs, rhs):
     if isinstance(rhs, Rep):
+        rhs = TorchExpr(Var(Ident(dmmy_rng, lhs.name)))
+    elif isinstance(rhs, TorchExpr):
         assignment = Assign([Var(Ident(dmmy_rng, lhs.name))], rhs.node)
         emit_node(assignment)
-        rhs = Rep(Var(Ident(dmmy_rng, lhs.name)))
+        rhs = TorchExpr(Var(Ident(dmmy_rng, lhs.name)))
 
     return py_defaults.assign(lhs, rhs)
 
@@ -43,10 +52,8 @@ call = call_helper.call
 
 
 def read(var):
-    if isinstance(var.val, torch.Tensor):
-        return Rep(Var(Ident(dmmy_rng, var.name)))
-    elif for_var_marker.is_marked(var):
-        return Rep(Var(Ident(dmmy_rng, var.name)))
+    if isinstance(var.val, torch.Tensor) or for_var_marker.is_marked(var):
+        return TorchExpr(Var(Ident(dmmy_rng, var.name)))
     return var.val
 
 
@@ -92,19 +99,38 @@ def for_stmt(target, iter_, body, orelse, modified_vars):
 def if_stmt(cond, body, orelse, local_writes):
     c = cond()
 
-    if isinstance(c, Rep):
+    if isinstance(c, TorchExpr):
         with fresh_ast() as body_statements:
             body()
         with fresh_ast() as orelse_statements:
             orelse()
 
-        emit_node(If(dmmy_rng, c, body_statements, orelse_statements))
+        emit_node(If(dmmy_rng, torch_expr(c), body_statements, orelse_statements))
 
     else:
         if c:
             body()
         else:
             orelse()
+
+
+def and_(v1, v2):
+    if isinstance(v1, bool) and isinstance(v2, bool):
+        return v1 and v2
+
+    if isinstance(v1, bool):
+        if not v1:
+            return False
+        else:
+            return v2
+
+    if isinstance(v2, bool):
+        if not v2:
+            return False
+        else:
+            return v1
+
+    return BinOp("and", v1, v2)
 
 
 def return_(v):

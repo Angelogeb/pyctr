@@ -2,7 +2,7 @@ import torch
 from torch._C._jit_tree_views import Apply, Attribute, Ident, Select, Var
 
 from pyctr.examples.torchscript.dmmy import dmmy_rng
-from pyctr.examples.torchscript.expression import Rep, torch_expr
+from pyctr.examples.torchscript.expression import TorchExpr, torch_expr
 from pyctr.overloads import py_defaults, staging
 
 
@@ -21,7 +21,7 @@ def generate_fun_for(name):
     def fn(args, kwargs):
         args = torch_expr(list(args))
         kwargs = kwargs_to_attribute_list(kwargs)
-        return Rep(Apply(ident, args, kwargs))
+        return TorchExpr(Apply(ident, args, kwargs))
 
     return fn
 
@@ -44,21 +44,41 @@ class TorchCallOverload:
 
 
 torch_call = TorchCallOverload(
-    ["cat", "sigmoid", "transpose", "relu", "max", "tanh", "matmul", "mm", "add"]
+    [
+        "cat",
+        "sigmoid",
+        "transpose",
+        "relu",
+        "max",
+        "tanh",
+        "matmul",
+        "mm",
+        "add",
+        "dropout",
+    ]
 )
 
 
 builtin_call = staging.RewritingCallOverload(py_defaults.call)
 
 
+def builtin_apply(name, args, kwargs):
+    return TorchExpr(Apply(Var(Ident(dmmy_rng, name)), args, kwargs))
+
+
 @builtin_call.replaces(range)
 def range_(stop):
-    return Rep(Apply(Var(Ident(dmmy_rng, "range")), [torch_expr(stop)], []))
+    return builtin_apply("range", [torch_expr(stop)], [])
 
 
 @builtin_call.replaces(int)
 def int_(e):
-    return Rep(Apply(Var(Ident(dmmy_rng, "int")), [torch_expr(e)], []))
+    return builtin_apply("int", [torch_expr(e)], [])
+
+
+@builtin_call.replaces(len)
+def len_(e):
+    return builtin_apply("len", [torch_expr(e)], [])
 
 
 def call(old_fun, args, kwargs):
