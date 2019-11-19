@@ -1,14 +1,21 @@
+import types
+
+import torch
 from torch._C._jit_tree_views import (
+    Apply,
     BinOp,
     Const,
     Expr,
     FalseLiteral,
+    Ident,
+    Select,
     Subscript,
     TrueLiteral,
     TupleLiteral,
     UnaryOp,
 )
 
+from pyctr.examples.torchscript import call_helper
 from pyctr.examples.torchscript.dmmy import dmmy_rng
 from pyctr.overloads import py_defaults
 
@@ -18,6 +25,43 @@ def gen_bin_op(op):
         return TorchExpr(BinOp(op, torch_expr(this), torch_expr(other)))
 
     return bin_op
+
+
+def gen_method(name):
+    def fun(this, *args, **kwargs):
+        args = torch_expr(list(args))
+        kwargs = call_helper.kwargs_to_attribute_list(kwargs)
+        return TorchExpr(Apply(Select(this.node, Ident(dmmy_rng, name)), args, kwargs))
+
+    return fun
+
+
+_operators = {
+    "__matmul__": "@",
+    "__mul__": "*",
+    "__add__": "+",
+    "__sub__": "-",
+    "__eq__": "==",
+    "__ne__": "!=",
+}
+
+
+def add_operators(clazz):
+    for o in _operators:
+        setattr(clazz, o, gen_bin_op(_operators[o]))
+
+
+def add_methods(clazz):
+    _tmp = torch.ones(1)
+
+    _attrs = dir(_tmp)
+
+    for a in _attrs:
+        if a[0] == "_":
+            continue
+        _typ = type(getattr(_tmp, a))
+        if _typ == types.MethodType or _typ == types.BuiltinFunctionType:
+            setattr(clazz, a, gen_method(a))
 
 
 class TorchExpr:
@@ -34,11 +78,8 @@ class TorchExpr:
         return TorchExpr(UnaryOp(dmmy_rng, "-", self.node))
 
 
-_operators = {"__matmul__": "@", "__add__": "+", "__sub__": "-", "__ne__": "!="}
-
-
-for o in _operators:
-    setattr(TorchExpr, o, gen_bin_op(_operators[o]))
+add_operators(TorchExpr)
+add_methods(TorchExpr)
 
 
 def torch_expr(e):
