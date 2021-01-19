@@ -228,11 +228,12 @@ class ActivityAnalyzer(transformer.Base):
         # Like a lambda's args, they are tracked separately in Python3.
         self.state[_Comprehension].targets.add(qn)
       else:
-        self.scope.mark_modified(qn)
-        if qn.is_composite and composite_writes_alter_parent:
-          self.scope.mark_modified(qn.parent)
-        if self._in_aug_assign:
-          self.scope.mark_read(qn)
+        if not node.id.startswith('t_'): # FIXME: ugly hack for tuple assignment
+          self.scope.mark_modified(qn)
+          if qn.is_composite and composite_writes_alter_parent:
+            self.scope.mark_modified(qn.parent)
+          if self._in_aug_assign:
+            self.scope.mark_read(qn)
     elif isinstance(node.ctx, gast.Load):
       self.scope.mark_read(qn)
     elif isinstance(node.ctx, gast.Param):

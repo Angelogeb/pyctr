@@ -22,6 +22,8 @@ import gast
 from pyctr.sct import templates
 from pyctr.sct import transformer
 from pyctr.transformers.virtualization import scoping
+from pyctr.core import anno
+from pyctr.core.parsing import ast_to_source
 
 
 class VariableTransformer(transformer.Base):
@@ -124,22 +126,40 @@ class VariableTransformer(transformer.Base):
     return node
 
   def visit_Assign(self, node):
-    # TODO(b/123943188): Handle multiple assignment
-    node.value = self.visit(node.value)
+      # TODO(b/123943188): Handle multiple assignment
+      node.value = self.visit(node.value)
 
-    lhs = node.targets[0].id
-    rhs = node.value
+      rhs = node.value
+      lhs = node.targets[0]
+      if isinstance(lhs, gast.Name):
+          if not self.scope.should_virtualize(lhs.id):
+              return node
+          return templates.replace(
+              'overload.assign(lhs, rhs)',
+              lhs=lhs,
+              rhs=rhs,
+              overload=self.overload.symbol_name)
+      elif isinstance(lhs, gast.Tuple):
+          names = [e.id for e in lhs.elts]
+          virt = [self.scope.should_virtualize(n) for n in names]
+          if all(e is False for e in virt):
+              return node
+          else:
+              assert all(virt)
 
-    if not self.scope.should_virtualize(lhs):
-      return node
+          rhs_name = self.ctx.namer.new_symbol('t_' + "__x__".join(names), set())
+          let = templates.replace("rhs_var = rhs", rhs_var=rhs_name, rhs=rhs)
 
-    node = templates.replace(
-        'overload.assign(lhs, rhs)',
-        lhs=lhs,
-        rhs=rhs,
-        overload=self.overload.symbol_name)
+          assignments = let + [
+            templates.replace(f"overload.assign(n, name[{i}])", name=rhs_name, n=n, overload=self.overload.symbol_name)[0]
+            for i, n in enumerate(names)
+          ]
+          return templates.replace(
+              "assignments",
+              assignments=assignments)
+      else:
+          raise NotImplementedError
 
-    return node
 
   def visit_AugAssign(self, node):
     # TODO(b/123943188): Implement AugAssign
